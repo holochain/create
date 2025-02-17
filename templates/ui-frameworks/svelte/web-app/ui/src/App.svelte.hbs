@@ -1,72 +1,17 @@
 <script lang="ts">
-  import { onMount, setContext } from 'svelte';
-  import type { ActionHash, AppClient, HolochainError } from '@holochain/client';
-  import { AppWebsocket } from '@holochain/client';
-{{#if holo_enabled}}
-  import WebSdk from '@holo-host/web-sdk'
-{{/if}}
+import { onMount } from 'svelte';
+import { setContext } from 'svelte';
+import logo from './assets/holochainLogo.svg';
+import { CLIENT_CONTEXT_KEY, createClientStore } from './contexts';
 
-  import logo from './assets/holochainLogo.svg';
-  import { type ClientContext, clientContext } from './contexts';
+const clientStore = createClientStore();
+setContext(CLIENT_CONTEXT_KEY, clientStore);
 
-{{#if holo_enabled}}
-  const IS_HOLO = ['true', '1', 't'].includes(import.meta.env.VITE_APP_IS_HOLO?.toLowerCase())
-  const logout = async () => {
-    await (client as WebSdk).signOut();
-    (client as WebSdk).signIn({ cancellable: false })
-  }
-{{/if}}
+$: ({ error, loading } = $clientStore);
 
-  let client: AppClient | undefined;
-  let error: HolochainError | undefined;
-  let loading = false;
-
-  const appClientContext = {
-    getClient: async () => {
-      if (!client) {
-        client = await AppWebsocket.connect();
-      }
-      return client;
-    },
-  };
-
-  onMount(async () => {
-  {{#if holo_enabled}}
-    try {
-      loading = true;
-      if (IS_HOLO) {
-        client = await WebSdk.connect({
-          chaperoneUrl: import.meta.env.VITE_APP_CHAPERONE_URL,
-          authFormCustomization: {
-            appName: '{{app_name}}',
-          }
-        });
-        (client as WebSdk).on('agent-state', agent_state => {
-          loading = !agent_state.isAvailable || agent_state.isAnonymous
-        });
-        (client as WebSdk).signUp({ cancellable: false });
-      } else {
-        client = await appClientContext.getClient();
-        loading = false;
-      }
-    } catch (e) {
-      error = e as HolochainError;
-    } finally {
-      loading = false;
-    }
-  {{else}}
-    try {
-      loading = true;
-      client = await appClientContext.getClient();
-    } catch (e) {
-      error = e as HolochainError;
-    } finally {
-      loading = false;
-    }
-  {{/if}}
-  });
-
-  setContext<ClientContext>(clientContext, appClientContext);
+onMount(() => {
+  clientStore.connect();
+});
 </script>
 
 <main>

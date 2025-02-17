@@ -1,40 +1,36 @@
 <script lang="ts">
-import { onMount, getContext } from 'svelte';
-import type {
-  Link,
-  Record,
-  ActionHash,
-  EntryHash,
-  AgentPubKey,
-  AppClient,
-  NewEntryAction,
-  HolochainError,
-} from '@holochain/client';
+import { onMount } from 'svelte';
+import type { Link, Record, ActionHash, EntryHash, AgentPubKey, NewEntryAction, HolochainError } from '@holochain/client';
 import { SignalType } from '@holochain/client';
-import { type ClientContext, clientContext } from '../../contexts';
-import {{pascal_case from_referenceable.name}}Detail from './{{pascal_case from_referenceable.name}}Detail.svelte';
+import { getClient } from "../../contexts";
+from_referenceable.name}}Detail from './{{pascal_case from_referenceable.name}}Detail.svelte';
 import type { {{pascal_case coordinator_zome_manifest.name}}Signal } from './types';
-
-let client: AppClient;
-const appClientContext = getContext<ClientContext>(clientContext);
-
-let hashes: Array<{{from_referenceable.hash_type}}> | undefined;
-let loading = false;
-let error: any = undefined;
 
 export let {{camel_case to_referenceable.singular_arg}}: {{to_referenceable.hash_type}};
 
-$: hashes, loading, error;
+const clientStore = getClient();
 
-onMount(async () => {
-  if (!{{camel_case to_referenceable.singular_arg}}) {
-    throw new Error(`The {{camel_case to_referenceable.singular_arg}} input is required for the {{pascal_case (plural from_referenceable.name)}}For{{pascal_case to_referenceable.name}} element`);
-  }
+let hashes: Array<{{from_referenceable.hash_type}}> = [];
+let loading = false;
+let error: HolochainError | undefined = undefined;
 
+function handleSignal(signal: any) {
+  if (!(SignalType.App in signal)) return;
+  if (signal.App.zome_name !== '{{coordinator_zome_manifest.name}}') return;
+
+  const payload = signal.App.payload as {{pascal_case coordinator_zome_manifest.name}}Signal;
+  if (payload.type !== 'LinkCreated') return;
+  if (payload.link_type !== '{{pascal_case bidirectional}}') return;
+
+  hashes = [...hashes, payload.action.hashed.content.target_address];
+}
+
+async function fetchLinks() {
+  if (!$clientStore.client) return;
+
+  loading = true;
   try {
-    loading = true;
-    client = await appClientContext.getClient();
-    const links: Array<Link> = await client.callZome({
+    const links: Array<Link> = await $clientStore.client.callZome({
       role_name: '{{dna_role_name}}',
       zome_name: '{{snake_case coordinator_zome_manifest.name}}',
       fn_name: 'get_{{snake_case (plural from_referenceable.name)}}_for_{{snake_case to_referenceable.name}}',
@@ -46,16 +42,19 @@ onMount(async () => {
   } finally {
     loading = false;
   }
+}
 
-  client.on('signal', signal => {
-    if (!(SignalType.App in signal)) return;
-    if (signal.App.zome_name !== '{{coordinator_zome_manifest.name}}') return;
-    const payload = signal.App.payload as {{pascal_case coordinator_zome_manifest.name}}Signal;
-    if (payload.type !== 'LinkCreated') return;
-    if (payload.link_type !== '{{pascal_case bidirectional}}') return;
+onMount(async () => {
+  if (!{{camel_case to_referenceable.singular_arg}}) {
+    throw new Error(
+      `The {{camel_case to_referenceable.singular_arg}} input is required for the {{pascal_case (plural from_referenceable.name)}}For{{pascal_case to_referenceable.name}} element`
+    );
+  }
 
-    hashes = [...hashes, payload.action.hashed.content.target_address];
-  });
+  if ($clientStore.client) {
+    await fetchLinks();
+    $clientStore.client.on('signal', handleSignal);
+  }
 });
 </script>
 

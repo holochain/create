@@ -1,36 +1,18 @@
 <script lang="ts">
-  import { onMount, setContext } from 'svelte';
-  import type { ActionHash, AppClient } from '@holochain/client';
-  import { AppWebsocket } from '@holochain/client';
-  import AllPosts from './forum/posts/AllPosts.svelte';
-  import CreatePost from './forum/posts/CreatePost.svelte';
+import AllPosts from "./forum/posts/AllPosts.svelte";
+import CreatePost from "./forum/posts/CreatePost.svelte";
+import { onMount } from "svelte";
+import { createClientStore, CLIENT_CONTEXT_KEY } from './contexts';
+import { setContext } from 'svelte';
 
-  import { type ClientContext, clientContext } from './contexts';
+const clientStore = createClientStore();
+setContext(CLIENT_CONTEXT_KEY, clientStore);
 
-  let client: AppClient | undefined;
-  let loading = false;
+$: ({ loading } = $clientStore);
 
-  const appClientContext = {
-    getClient: async () => {
-      if (!client) {
-        client = await AppWebsocket.connect();
-      }
-      return client;
-    },
-  };
-
-  onMount(async () => {
-    loading = true;
-    try {
-      client = await appClientContext.getClient();
-    } catch(e) {
-      console.error(e)
-    } finally {
-      loading = false;
-    }
-  });
-
-  setContext<ClientContext>(clientContext, appClientContext);
+onMount(() => {
+  clientStore.connect();
+});
 </script>
 
 <main>

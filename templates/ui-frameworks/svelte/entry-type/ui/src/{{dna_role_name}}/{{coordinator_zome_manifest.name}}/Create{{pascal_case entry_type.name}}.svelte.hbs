@@ -1,20 +1,18 @@
 <script lang="ts">
-import { createEventDispatcher, getContext, onMount } from 'svelte';
-import type { AppClient, Record, EntryHash, AgentPubKey, ActionHash, DnaHash, HolochainError } from '@holochain/client';
-import { type ClientContext, clientContext } from '../../contexts';
+import { createEventDispatcher, onMount } from 'svelte';
+import type { Record, EntryHash, AgentPubKey, ActionHash, DnaHash, HolochainError } from '@holochain/client';
+import { getClient } from '../../contexts';
 import type { {{pascal_case entry_type.name}}{{#each entry_type.fields}}{{#if (eq field_type.type "Enum")}}, {{field_type.label}}{{/if}}{{/each}} } from './types';
 {{#uniq_lines}}
   {{#each entry_type.fields}}
     {{#if widget}}
 {{> (concat field_type.type "/" widget "/edit/imports") }}
-
     {{/if}}
   {{/each}}
 {{/uniq_lines}}
 
 const dispatch = createEventDispatcher();
-let client: AppClient;
-const appClientContext = getContext<ClientContext>(clientContext);
+const clientStore = getClient();
 
 {{#each entry_type.fields}}
   {{#if widget }}
@@ -22,7 +20,7 @@ const appClientContext = getContext<ClientContext>(clientContext);
 let {{camel_case field_name}}: {{> (concat field_type.type "/type") }}{{#if (eq cardinality "option")}} | undefined{{/if}} = {{> (concat field_type.type "/" widget "/initial-value") field_type=field_type}};
     {{else}}
       {{#if (eq field_type.type "u8")}}
-let {{camel_case field_name}}: Uint8Array = [{{> (concat field_type.type "/" widget "/initial-value") field_type=field_type}}];
+let {{camel_case field_name}}: Uint8Array = new Uint8Array([{{> (concat field_type.type "/" widget "/initial-value") field_type=field_type}}]);
       {{else}}
 let {{camel_case field_name}}: Array<{{> (concat field_type.type "/type")}}> = [{{> (concat field_type.type "/" widget "/initial-value") field_type=field_type}}];
       {{/if}}
@@ -34,12 +32,12 @@ let {{camel_case field_name}}: Array<{{> (concat field_type.type "/type")}}> = [
   {{#if (not widget) }}
     {{#if (eq cardinality "vector")}}
       {{#if (eq field_type.type "u8")}}
-export let {{camel_case field_name}}!: Uint8Array;
+export let {{camel_case field_name}}: Uint8Array;
       {{else}}
-export let {{camel_case field_name}}!: Array<{{> (concat field_type.type "/type") }}>;
+export let {{camel_case field_name}}: Array<{{> (concat field_type.type "/type") }}>;
       {{/if}}
     {{else}}
-export let {{camel_case field_name}}{{#if (eq cardinality "single")}}!{{/if}}: {{> (concat field_type.type "/type") }}{{#if (eq cardinality "option")}} | undefined{{/if}};
+export let {{camel_case field_name}}{{#if (eq cardinality "single")}}{{/if}}: {{> (concat field_type.type "/type") }}{{#if (eq cardinality "option")}} | undefined{{/if}};
     {{/if}}
   {{/if}}
 {{/each}}
@@ -47,39 +45,42 @@ export let {{camel_case field_name}}{{#if (eq cardinality "single")}}!{{/if}}: {
 $: {{#each entry_type.fields}}{{camel_case field_name}}{{#unless @last}}, {{/unless}}{{/each}};
 $: is{{pascal_case entry_type.name}}Valid = true{{#each entry_type.fields}}{{#if widget}}{{#if (eq cardinality "single")}} && {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate=(camel_case field_name) }}{{/if}}{{#if (eq cardinality "vector")}} && {{camel_case field_name}}.every(e => {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate="e" }}){{/if}}{{/if}}{{/each}};
 
-onMount(async () => {
-{{#each entry_type.fields}}
-  {{#if (not widget) }}
-    {{#if (ne cardinality "option")}}
+onMount(() => {
+  {{#each entry_type.fields}}
+    {{#if (not widget) }}
+      {{#if (ne cardinality "option")}}
   if ({{camel_case field_name}} === undefined) {
     throw new Error(`The {{camel_case field_name}} input is required for the Create{{pascal_case ../entry_type.name}} element`);
   }
+      {{/if}}
     {{/if}}
-  {{/if}}
-{{/each}}
-  client = await appClientContext.getClient();
+  {{/each}}
 });
 
 async function create{{pascal_case entry_type.name}}() {
+  if (!$clientStore.client) return;
+
   const {{camel_case entry_type.name}}Entry: {{pascal_case entry_type.name}} = {
-  {{#each entry_type.fields}}
+    {{#each entry_type.fields}}
     {{snake_case field_name}}: {{camel_case field_name}}{{#if (eq cardinality "single")}}!{{/if}},
-  {{/each}}
+    {{/each}}
   };
 
   try {
-    const record: Record = await client.callZome({
+    const record: Record = await $clientStore.client.callZome({
       role_name: '{{dna_role_name}}',
       zome_name: '{{coordinator_zome_manifest.name}}',
       fn_name: 'create_{{snake_case entry_type.name}}',
       payload: {{camel_case entry_type.name}}Entry,
     });
-    dispatch('{{kebab_case entry_type.name}}-created', { {{camel_case entry_type.name}}Hash: record.signed_action.hashed.hash });
+    
+    dispatch('{{kebab_case entry_type.name}}-created', { 
+      {{camel_case entry_type.name}}Hash: record.signed_action.hashed.hash 
+    });
   } catch (e) {
-    alert((e as HolochainError).message)
+    alert((e as HolochainError).message);
   }
 }
-
 </script>
 
 <div>

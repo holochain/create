@@ -1,72 +1,78 @@
 <script lang="ts">
-import { onMount, getContext } from 'svelte';
-import type {
-  EntryHash,
-  Record,
-  AgentPubKey,
-  ActionHash,
-  Link,
-  AppClient,
-  NewEntryAction,
-  HolochainError,
-} from '@holochain/client';
-import { SignalType } from '@holochain/client'
-import { type ClientContext, clientContext } from '../../contexts';
+import { onMount } from 'svelte';
+import type { EntryHash, Record, AgentPubKey, ActionHash, Link, NewEntryAction, HolochainError } from '@holochain/client';
+import { SignalType } from '@holochain/client';
+import { getClient } from "../../contexts";
 import {{pascal_case referenceable.name}}Detail from './{{pascal_case referenceable.name}}Detail.svelte';
 import type { {{pascal_case coordinator_zome_manifest.name}}Signal } from './types';
-
-let client: AppClient;
-const appClientContext = getContext<ClientContext>(clientContext);
-
-let hashes: Array<{{referenceable.hash_type}}> = [];
-let loading = false;
-let error: any = undefined;
 
 {{#if (eq collection_type.type "ByAuthor")}}
 export let author: AgentPubKey;
 {{/if}}
-$: hashes, loading, error;
 
-onMount(async () => {
-  {{#if (eq collection_type.type "ByAuthor")}}
-    if (!author) {
-      throw new Error(`The author input is required for the {{pascal_case collection_name}} element`);
-    }
-  {{/if}}
-  client = await appClientContext.getClient();
-  await fetch{{pascal_case (plural referenceable.name)}}();
-  client.on('signal', signal => {
-    if (!(SignalType.App in signal)) return;
-    if (signal.App.zome_name !== '{{coordinator_zome_manifest.name}}') return;
-    const payload = signal.App.payload as {{pascal_case coordinator_zome_manifest.name}}Signal;
-    if (payload.type !== 'EntryCreated') return;
-    if (payload.app_entry.type !== '{{pascal_case referenceable.name}}') return;
-{{#if (eq collection_type.type "ByAuthor")}}
-    if (author.toString() !== client.myPubKey.toString()) return;
-{{/if}}
-    hashes = [...hashes, {{#if (eq referenceable.hash_type "ActionHash")}}payload.action.hashed.hash{{else}}(payload.action.hashed.content as NewEntryAction).entry_hash{{/if}}];
-  });
-});
+const clientStore = getClient();
+
+let hashes: Array<{{referenceable.hash_type}}> = [];
+let loading = false;
+let error: HolochainError | undefined = undefined;
 
 async function fetch{{pascal_case (plural referenceable.name)}}() {
   loading = true;
   try {
-    const links: Array<Link> = await client.callZome({
+    const links: Array<Link> = await client?.callZome({
       role_name: '{{dna_role_name}}',
       zome_name: '{{snake_case coordinator_zome_manifest.name}}',
       fn_name: 'get_{{snake_case collection_name}}',
-      {{#if (eq collection_type.type "ByAuthor")}}payload: author,{{/if}}
+      {{#if (eq collection_type.type "ByAuthor")}}
+      payload: author,
+      {{/if}}
     });
-    if (links.length) {
+
+    if (links?.length) {
       hashes = links.map(l => l.target);
     }
-    hashes = links.map(l => l.target);
   } catch (e) {
     error = e as HolochainError;
   } finally {
     loading = false;
   }
 }
+
+function handleSignal(signal: any) {
+  if (!(SignalType.App in signal)) return;
+  if (signal.App.zome_name !== '{{coordinator_zome_manifest.name}}') return;
+  const payload = signal.App.payload as {{pascal_case coordinator_zome_manifest.name}}Signal;
+  if (payload.type !== 'EntryCreated') return;
+  if (payload.app_entry.type !== '{{pascal_case referenceable.name}}') return;
+
+  {{#if (eq collection_type.type "ByAuthor")}}
+  if (author.toString() !== $clientStore.client?.myPubKey.toString()) return;
+  {{/if}}
+
+  const newHash = {{#if (eq referenceable.hash_type "ActionHash")}}
+    payload.action.hashed.hash
+  {{else}}
+    (payload.action.hashed.content as NewEntryAction).entry_hash
+  {{/if}};
+
+  hashes = [...hashes, newHash];
+}
+
+onMount(async () => {
+  {{#if (eq collection_type.type "ByAuthor")}}
+  if (!author) {
+    throw new Error(`The author input is required for the {{pascal_case collection_name}} element`);
+  }
+  {{/if}}
+
+  if ($clientStore.client) {
+    await fetch{{pascal_case (plural referenceable.name)}}();
+    $clientStore.client.on('signal', handleSignal);
+  }
+});
+
+$: ({ client } = $clientStore);
+$: if (client) fetch{{pascal_case (plural referenceable.name)}}();
 </script>
 
 {#if loading}

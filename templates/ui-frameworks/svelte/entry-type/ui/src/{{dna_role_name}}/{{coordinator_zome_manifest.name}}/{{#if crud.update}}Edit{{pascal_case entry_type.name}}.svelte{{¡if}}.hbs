@@ -1,35 +1,34 @@
 <script lang="ts">
-import { createEventDispatcher, getContext, onMount } from 'svelte';
-import type { AppClient, Record, EntryHash, AgentPubKey, DnaHash, ActionHash, HolochainError } from '@holochain/client';
+import { createEventDispatcher, onMount } from 'svelte';
+import type { Record, EntryHash, AgentPubKey, DnaHash, ActionHash, HolochainError } from '@holochain/client';
 import { decode } from '@msgpack/msgpack';
-import { type ClientContext, clientContext } from '../../contexts';
+import { getClient } from '../../contexts';
 import type { {{pascal_case entry_type.name}}{{#each entry_type.fields}}{{#if (eq field_type.type "Enum")}}, {{field_type.label}}{{/if}}{{/each}} } from './types';
 {{#uniq_lines}}
   {{#each entry_type.fields}}
     {{#if widget}}
 {{> (concat field_type.type "/" widget "/edit/imports") }}
-
     {{/if}}
   {{/each}}
 {{/uniq_lines}}
 
-let client: AppClient;
-const appClientContext = getContext<ClientContext>(clientContext);
 const dispatch = createEventDispatcher();
+const clientStore = getClient();
 
-export let currentRecord!: Record;
+export let currentRecord: Record;
 {{#if link_from_original_to_each_update}}
-export let original{{pascal_case entry_type.name}}Hash!: ActionHash;
+export let original{{pascal_case entry_type.name}}Hash: ActionHash;
 {{/if}}
 
 let current{{pascal_case entry_type.name}}: {{pascal_case entry_type.name}} = decode((currentRecord.entry as any).Present.entry) as {{pascal_case entry_type.name}};
+
 {{#each entry_type.fields}}
   {{#if widget }}
     {{#if (not (eq cardinality "vector" ) )}}
 let {{camel_case field_name}}: {{> (concat field_type.type "/type")}} | undefined = current{{pascal_case ../entry_type.name}}.{{snake_case field_name}};
     {{else}}
       {{#if (eq field_type.type "u8")}}
-let {{camel_case field_name}}: Uint8Array | undefined> = current{{pascal_case ../entry_type.name}}.{{snake_case field_name}};
+let {{camel_case field_name}}: Uint8Array | undefined = current{{pascal_case ../entry_type.name}}.{{snake_case field_name}};
       {{else}}
 let {{camel_case field_name}}: Array<{{> (concat field_type.type "/type")}} | undefined> = current{{pascal_case ../entry_type.name}}.{{snake_case field_name}};
       {{/if}}
@@ -40,38 +39,39 @@ let {{camel_case field_name}}: Array<{{> (concat field_type.type "/type")}} | un
 $: {{#each (filter entry_type.fields "widget")}}{{camel_case field_name}}{{#unless @last}}, {{/unless}}{{/each}};
 $: is{{pascal_case entry_type.name}}Valid = true{{#each entry_type.fields}}{{#if widget}}{{#if (eq cardinality "single")}} && {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate=(camel_case field_name) }}{{/if}}{{#if (eq cardinality "vector")}} && {{camel_case field_name}}.every(e => {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate="e" }}){{/if}}{{/if}}{{/each}};
 
-onMount(async () => {
+onMount(() => {
   if (!currentRecord) {
     throw new Error(`The currentRecord input is required for the Edit{{pascal_case entry_type.name}} element`);
   }
-{{#if link_from_original_to_each_update}}
+  {{#if link_from_original_to_each_update}}
   if (!original{{pascal_case entry_type.name}}Hash) {
     throw new Error(`The original{{pascal_case entry_type.name}}Hash input is required for the Edit{{pascal_case entry_type.name}} element`);
   }
-{{/if}}
-client = await appClientContext.getClient();
+  {{/if}}
 });
 
 async function update{{pascal_case entry_type.name}}() {
+  if (!$clientStore.client) return;
+
   const {{camel_case entry_type.name}}: {{pascal_case entry_type.name}} = {
-  {{#each entry_type.fields}}
-    {{#if widget}}
-      {{#if (eq cardinality "single") }}
+    {{#each entry_type.fields}}
+      {{#if widget}}
+        {{#if (eq cardinality "single") }}
     {{snake_case field_name}}: {{camel_case field_name}}!,
-      {{else}}
+        {{else}}
     {{snake_case field_name}}: {{camel_case field_name}}{{#if (eq cardinality "vector") }} as Array<{{> (concat field_type.type "/type") }}>{{/if}},
+        {{/if}}
       {{/if}}
-    {{/if}}
-  {{/each}}
-  {{#each entry_type.fields}}
-    {{#if (not widget)}}
+    {{/each}}
+    {{#each entry_type.fields}}
+      {{#if (not widget)}}
     {{snake_case field_name}}: current{{pascal_case ../entry_type.name}}.{{snake_case field_name}},
-    {{/if}}
-  {{/each}}
+      {{/if}}
+    {{/each}}
   };
 
   try {
-    const updateRecord: Record = await client.callZome({
+    const updateRecord: Record = await $clientStore.client.callZome({
       role_name: '{{dna_role_name}}',
       zome_name: '{{coordinator_zome_manifest.name}}',
       fn_name: 'update_{{snake_case entry_type.name}}',
@@ -84,9 +84,11 @@ async function update{{pascal_case entry_type.name}}() {
       }
     });
 
-    dispatch('{{kebab_case entry_type.name}}-updated', { actionHash: updateRecord.signed_action.hashed.hash });
+    dispatch('{{kebab_case entry_type.name}}-updated', {
+      actionHash: updateRecord.signed_action.hashed.hash
+    });
   } catch (e) {
-    alert((e as HolochainError).message)
+    alert((e as HolochainError).message);
   }
 }
 </script>

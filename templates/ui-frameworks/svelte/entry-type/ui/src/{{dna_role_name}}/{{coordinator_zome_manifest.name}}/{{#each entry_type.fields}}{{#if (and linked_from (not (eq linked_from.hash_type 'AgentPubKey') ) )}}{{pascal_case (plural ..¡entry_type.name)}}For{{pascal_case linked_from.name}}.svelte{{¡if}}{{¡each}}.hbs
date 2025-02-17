@@ -1,64 +1,57 @@
 <script lang="ts">
-import { onMount, getContext } from 'svelte';
-import type {
-  Link,
-  ActionHash,
-  EntryHash,
-  AppClient,
-  Record,
-  AgentPubKey,
-  NewEntryAction,
-  HolochainError,
-  SignalType,
-} from '@holochain/client';
+import { onMount } from 'svelte';
+import type { Link, ActionHash, EntryHash, Record, AgentPubKey, NewEntryAction, HolochainError } from '@holochain/client';
 import { SignalType } from '@holochain/client';
-import { type ClientContext, clientContext } from '../../contexts';
+import { getClient } from '../../contexts';
 import type { {{pascal_case ../entry_type.name}}, {{pascal_case ../coordinator_zome_manifest.name}}Signal } from './types';
 import {{pascal_case ../entry_type.name}}Detail from './{{pascal_case ../entry_type.name}}Detail.svelte';
 
-let client: AppClient;
-const appClientContext = getContext<ClientContext>(clientContext);
-
-let hashes: Array<ActionHash> | undefined = [];
-let loading: boolean;
-let error: any = undefined;
-
 export let {{camel_case linked_from.singular_arg}}: {{linked_from.hash_type}};
 
-$: hashes, loading, error;
+const clientStore = getClient();
 
-onMount(async () => {
-  if ({{camel_case linked_from.singular_arg}} === undefined) {
-    throw new Error(`The {{camel_case linked_from.singular_arg}} input is required for the {{pascal_case (plural ../entry_type.name)}}For{{pascal_case linked_from.name}} element`);
-  }
-  client = await appClientContext.getClient();
-  await fetch{{pascal_case (plural ../entry_type.name)}}();
-
-  client.on('signal', async signal => {
-    if (!(SignalType.App in signal)) return;
-    if (signal.App.zome_name !== '{{../coordinator_zome_manifest.name}}') return;
-    const payload = signal.App.payload as {{pascal_case ../coordinator_zome_manifest.name}}Signal;
-    if (!(payload.type === 'EntryCreated' && payload.app_entry.type === '{{pascal_case ../entry_type.name}}')) return;
-    await fetch{{pascal_case (plural ../entry_type.name)}}();
-  });
-});
+let hashes: Array<ActionHash> = [];
+let loading = false;
+let error: HolochainError | undefined = undefined;
 
 async function fetch{{pascal_case (plural ../entry_type.name)}}() {
   loading = true;
   try {
-    const links: Array<Link> = await client.callZome({
+    const links: Array<Link> = await $clientStore.client?.callZome({
       role_name: '{{../dna_role_name}}',
       zome_name: '{{../coordinator_zome_manifest.name}}',
       fn_name: 'get_{{snake_case (plural ../entry_type.name)}}_for_{{snake_case linked_from.name}}',
       payload: {{camel_case linked_from.singular_arg}}
     });
-    hashes = links.map(l => l.target);
+    hashes = links?.map(l => l.target) || [];
   } catch (e) {
     error = e as HolochainError;
   } finally {
     loading = false;
   }
 }
+
+function handleSignal(signal: any) {
+  if (!(SignalType.App in signal)) return;
+  if (signal.App.zome_name !== '{{../coordinator_zome_manifest.name}}') return;
+  const payload = signal.App.payload as {{pascal_case ../coordinator_zome_manifest.name}}Signal;
+  if (!(payload.type === 'EntryCreated' && payload.app_entry.type === '{{pascal_case ../entry_type.name}}')) return;
+
+  fetch{{pascal_case (plural ../entry_type.name)}}();
+}
+
+onMount(async () => {
+  if ({{camel_case linked_from.singular_arg}} === undefined) {
+    throw new Error(
+      `The {{camel_case linked_from.singular_arg}} input is required for the {{pascal_case (plural ../entry_type.name)}}For{{pascal_case linked_from.name}} element`
+    );
+  }
+
+  if ($clientStore.client) {
+    await fetch{{pascal_case (plural ../entry_type.name)}}();
+    $clientStore.client.on('signal', handleSignal);
+  }
+});
 </script>
 
 {#if loading }

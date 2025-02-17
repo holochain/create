@@ -1,7 +1,83 @@
-import { type AppClient } from "@holochain/client";
+import { writable, type Writable } from 'svelte/store';
+import { getContext, setContext } from 'svelte';
+import type { AppClient, HolochainError } from '@holochain/client';
+import { AppWebsocket } from '@holochain/client';
+{{#if holo_enabled}}
+import WebSdk from '@holo-host/web-sdk';
+{{/if}}
 
-export const clientContext = "AppClient";
+export const CLIENT_CONTEXT_KEY = Symbol('holochain-client');
 
-export type ClientContext = {
-  getClient: () => Promise<AppClient>;
-};
+interface ClientStore {
+  client: AppClient | undefined;
+  error: HolochainError | undefined;
+  loading: boolean;
+}
+
+{{#if holo_enabled}}
+const IS_HOLO = ['true', '1', 't'].includes(import.meta.env.VITE_APP_IS_HOLO?.toLowerCase());
+{{/if}}
+
+export function createClientStore() {
+  const store = writable<ClientStore>({
+    client: undefined,
+    error: undefined,
+    loading: false
+  });
+
+  const { subscribe, set, update } = store;
+
+  return {
+    subscribe,
+    connect: async () => {
+      update(s => ({ ...s, loading: true }));
+      try {
+        {{#if holo_enabled}}
+        if (IS_HOLO) {
+          const client = await WebSdk.connect({
+            chaperoneUrl: import.meta.env.VITE_APP_CHAPERONE_URL,
+            authFormCustomization: {
+              appName: '{{app_name}}',
+            }
+          });
+          
+          (client as WebSdk).on('agent-state', agent_state => {
+            update(s => ({ ...s, loading: !agent_state.isAvailable || agent_state.isAnonymous }));
+          });
+          
+          (client as WebSdk).signUp({ cancellable: false });
+          update(s => ({ ...s, client }));
+        } else {
+          const client = await AppWebsocket.connect();
+          update(s => ({ ...s, client }));
+        }
+        {{else}}
+        const client = await AppWebsocket.connect();
+        update(s => ({ ...s, client }));
+        {{/if}}
+      } catch (e) {
+        update(s => ({ ...s, error: e as HolochainError }));
+      } finally {
+        update(s => ({ ...s, loading: false }));
+      }
+    },
+    {{#if holo_enabled}}
+    logout: async () => {
+      const { client } = get(store);
+      if (client && IS_HOLO) {
+        await (client as WebSdk).signOut();
+        (client as WebSdk).signIn({ cancellable: false });
+      }
+    },
+    {{/if}}
+    getClient: () => {
+      const { client } = get(store);
+      if (!client) throw new Error('Client not initialized');
+      return client;
+    }
+  };
+}
+
+export function getClient() {
+  return getContext<ReturnType<typeof createClientStore>>(CLIENT_CONTEXT_KEY);
+}

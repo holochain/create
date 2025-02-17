@@ -1,8 +1,8 @@
 <script lang="ts">
-import { createEventDispatcher, onMount, getContext } from 'svelte';
+import { createEventDispatcher, onMount } from 'svelte';
 import { decode } from '@msgpack/msgpack';
-import type { Record, ActionHash, AppClient, EntryHash, AgentPubKey, DnaHash, HolochainError } from '@holochain/client';
-import { type ClientContext, clientContext } from '../../contexts';
+import type { Record, ActionHash, EntryHash, AgentPubKey, DnaHash, HolochainError } from '@holochain/client';
+import { getClient } from "../../contexts";
 import type { {{pascal_case entry_type.name}}{{#each entry_type.fields}}{{#if (eq field_type.type "Enum")}}, {{field_type.label}}{{/if}}{{/each}} } from './types';
 {{#if crud.update}}
 import Edit{{pascal_case entry_type.name}} from './Edit{{pascal_case entry_type.name}}.svelte';
@@ -11,16 +11,16 @@ import Edit{{pascal_case entry_type.name}} from './Edit{{pascal_case entry_type.
   {{#each entry_type.fields}}
     {{#if widget}}
 {{> (concat field_type.type "/" widget "/detail/imports") }}
-
     {{/if}}
   {{/each}}
 {{/uniq_lines}}
 
-let client: AppClient;
-const appClientContext = getContext<ClientContext>(clientContext);
 const dispatch = createEventDispatcher();
+const clientStore = getClient();
 
-let loading: boolean = false;
+export let {{camel_case entry_type.name}}Hash: {{#if entry_type.reference_entry_hash}}EntryHash{{else}}ActionHash{{/if}};
+
+let loading = false;
 {{#if crud.update}}
 let editing = false;
 {{/if}}
@@ -28,27 +28,18 @@ let error: HolochainError | undefined;
 let record: Record | undefined;
 let {{camel_case entry_type.name}}: {{pascal_case entry_type.name}} | undefined;
 
-export let {{camel_case entry_type.name}}Hash: {{#if entry_type.reference_entry_hash}}EntryHash{{else}}ActionHash{{/if}};
-
-$: {{#if crud.update}}editing,{{/if}} error, loading, record, {{camel_case entry_type.name}};
-
-onMount(async () => {
-  if ({{camel_case entry_type.name}}Hash === undefined) {
-    throw new Error(`The {{camel_case entry_type.name}}Hash input is required for the {{pascal_case entry_type.name}}Detail element`);
-  }
-  client = await appClientContext.getClient();
-  await fetch{{pascal_case entry_type.name}}();
-});
-
 async function fetch{{pascal_case entry_type.name}}() {
+  if (!$clientStore.client) return;
+  
   loading = true;
   try {
-    record = await client.callZome({
+    record = await $clientStore.client.callZome({
       role_name: '{{dna_role_name}}',
       zome_name: '{{coordinator_zome_manifest.name}}',
       fn_name: '{{#if crud.update}}get_latest_{{snake_case entry_type.name}}{{else}}get_{{snake_case entry_type.name}}{{/if}}',
       payload: {{camel_case entry_type.name}}Hash,
     });
+    
     if (record) {
       {{camel_case entry_type.name}} = decode((record.entry as any).Present.entry) as {{pascal_case entry_type.name}};
     }
@@ -61,19 +52,36 @@ async function fetch{{pascal_case entry_type.name}}() {
 
 {{#if crud.delete}}
 async function delete{{pascal_case entry_type.name}}() {
+  if (!$clientStore.client) return;
+
   try {
-    await client.callZome({
+    await $clientStore.client.callZome({
       role_name: '{{dna_role_name}}',
       zome_name: '{{coordinator_zome_manifest.name}}',
       fn_name: 'delete_{{snake_case entry_type.name}}',
       payload: {{camel_case entry_type.name}}Hash,
     });
-    dispatch('{{kebab_case entry_type.name}}-deleted', { {{camel_case entry_type.name}}Hash: {{camel_case entry_type.name}}Hash });
+    
+    dispatch('{{kebab_case entry_type.name}}-deleted', { 
+      {{camel_case entry_type.name}}Hash 
+    });
   } catch (e) {
-    alert((e as HolochainError).message)
+    alert((e as HolochainError).message);
   }
 }
 {{/if}}
+
+onMount(async () => {
+  if ({{camel_case entry_type.name}}Hash === undefined) {
+    throw new Error(
+      `The {{camel_case entry_type.name}}Hash input is required for the {{pascal_case entry_type.name}}Detail element`
+    );
+  }
+
+  if ($clientStore.client) {
+    await fetch{{pascal_case entry_type.name}}();
+  }
+});
 </script>
 
 {#if loading}

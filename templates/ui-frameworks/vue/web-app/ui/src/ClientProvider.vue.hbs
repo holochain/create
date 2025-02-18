@@ -1,0 +1,13 @@
+<template>
+  <progress v-if="loading"></progress>
+  <div v-else-if="error" class="alert">
+    Error connecting to Holochain: {{{{raw}}}} {{error.message}}.{{{{/raw}}}}
+  </div>
+  <slot v-else-if="client"></slot>
+</template>
+
+<script setup lang="ts">
+import { useClientProvider } from './clientProvider';
+
+const { client, error, loading } = useClientProvider();
+</script>

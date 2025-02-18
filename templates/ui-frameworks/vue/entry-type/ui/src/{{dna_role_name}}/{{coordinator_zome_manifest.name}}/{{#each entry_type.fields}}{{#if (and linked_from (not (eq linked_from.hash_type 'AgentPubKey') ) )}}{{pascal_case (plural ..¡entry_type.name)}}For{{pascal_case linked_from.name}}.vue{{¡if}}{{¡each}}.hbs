@@ -1,6 +1,8 @@
 <template>
   <progress v-if="loading"></progress>
-  <div class="alert" v-if="error">Error fetching the {{lower_case (plural ../entry_type.name)}}: {{{{raw}}}} {{error}}.{{{{/raw}}}}</div>
+  <div class="alert" v-if="error">
+    Error fetching the {{lower_case (plural ../entry_type.name)}}: {{ error.message }}
+  </div>
   <div v-else-if="hashes && hashes.length > 0">
     <{{pascal_case ../entry_type.name}}Detail
       v-for="(hash, i) in hashes"
@@ -13,65 +15,51 @@
   <div class="alert" v-else>No {{lower_case (plural ../entry_type.name)}} found for this {{lower_case linked_from.name}}.</div>
 </template>
 
-<script lang="ts">
-import { inject, ComputedRef, toRaw, defineComponent } from 'vue';
-import { decode } from '@msgpack/msgpack';
-import { AppClient, Link, Record, ActionHash, AgentPubKey, HolochainError, SignalType } from '@holochain/client';
+<script setup lang="ts">
+import { ref, onMounted, toRaw, inject, defineProps } from 'vue';
+import { Link, ActionHash, EntryHash, HolochainError, SignalType } from '@holochain/client';
 import {{pascal_case ../entry_type.name}}Detail from './{{pascal_case ../entry_type.name}}Detail.vue';
 import { {{pascal_case ../coordinator_zome_manifest.name}}Signal } from './types';
+import { ClientKey } from '../../clientProvider';
 
-export default defineComponent({
-  components: {
-    {{pascal_case ../entry_type.name}}Detail,
-  },
-  props: {
-    {{camel_case linked_from.singular_arg}}: {
-      type: Object,
-      required: true
-    }
-  },
-  data(): { hashes: Array<ActionHash> | undefined; loading: boolean; error: any } {
-    return {
-      hashes: [],
-      loading: false,
-      error: undefined
-    }
-  },
-  async mounted() {
-    if (this.{{camel_case linked_from.singular_arg}} === undefined) {
-      throw new Error(`The {{camel_case linked_from.singular_arg}}Hash input is required for the {{pascal_case (plural ../entry_type.name)}}For{{pascal_case linked_from.name}} element`);
-    }
+const props = defineProps<{ {{camel_case linked_from.singular_arg}}: ActionHash | EntryHash }>();
 
-    await this.fetch{{pascal_case (plural ../entry_type.name)}}();
+const hashes = ref<Array<ActionHash> | undefined>(undefined);
+const loading = ref(false);
+const error = ref<HolochainError | undefined>(undefined);
 
-    toRaw(this.client)?.on('signal', async signal => {
-      if (!(SignalType.App in signal)) return;
-      if (signal.App.zome_name !== '{{../coordinator_zome_manifest.name}}') return;
-      const payload = signal.App.payload as {{pascal_case ../coordinator_zome_manifest.name}}Signal;
-      if (!(payload.type === 'EntryCreated' && payload.app_entry.type === '{{pascal_case ../entry_type.name}}')) return;
-      await this.fetch{{pascal_case (plural ../entry_type.name)}}();
+const { client } = inject(ClientKey)!;
+
+const fetch{{pascal_case (plural ../entry_type.name)}} = async () => {
+  loading.value = true;
+  try {
+    const links: Array<Link> = await client.value?.callZome({
+      role_name: '{{../dna_role_name}}',
+      zome_name: '{{../coordinator_zome_manifest.name}}',
+      fn_name: 'get_{{snake_case (plural ../entry_type.name)}}_for_{{snake_case linked_from.name}}',
+      payload: props.{{camel_case linked_from.singular_arg}},
     });
-  },
-  methods: {
-    async fetch{{pascal_case (plural ../entry_type.name)}}() {
-      this.loading = true;
-      try {
-        const links: Array<Link> = await this.client.callZome({
-          role_name: '{{../dna_role_name}}',
-          zome_name: '{{../coordinator_zome_manifest.name}}',
-          fn_name: 'get_{{snake_case (plural ../entry_type.name)}}_for_{{snake_case linked_from.name}}',
-          payload: this.{{camel_case linked_from.singular_arg}},
-        });
-        this.hashes = links.map(l => l.target);
-      } catch (e) {
-        this.error = e as HolochainError;
-      }
-      this.loading = false;
-    }
-  },
-  setup() {
-    const client = (inject('client') as ComputedRef<AppClient>).value;
-    return { client };
-  },
+    hashes.value = links.map(l => l.target);
+  } catch(e) {
+    error.value = e as HolochainError;
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(async () => {
+  if (!props.{{camel_case linked_from.singular_arg}}) {
+    throw new Error(`The {{camel_case linked_from.singular_arg}}Hash input is required for the {{pascal_case (plural ../entry_type.name)}}For{{pascal_case linked_from.name}} element`);
+  }
+
+  await fetch{{pascal_case (plural ../entry_type.name)}}();
+
+  toRaw(client.value)?.on('signal', async signal => {
+    if (!(SignalType.App in signal)) return;
+    if (signal.App.zome_name !== '{{../coordinator_zome_manifest.name}}') return;
+    const payload = signal.App.payload as {{pascal_case ../coordinator_zome_manifest.name}}Signal;
+    if (!(payload.type === 'EntryCreated' && payload.app_entry.type === '{{pascal_case ../entry_type.name}}')) return;
+    await fetch{{pascal_case (plural ../entry_type.name)}}();
+  });
 });
 </script>

@@ -22,11 +22,12 @@
   </section>
 </template>
 
-<script lang="ts">
-import { inject, ComputedRef, defineComponent } from 'vue';
-import { AppClient, Record, AgentPubKey, EntryHash, ActionHash, DnaHash, HolochainError } from '@holochain/client';
-import { {{pascal_case entry_type.name}}{{#each entry_type.fields}}{{#if (eq field_type.type "Enum")}}, {{field_type.label}}{{/if}}{{/each}} } from './types';
+<script setup lang="ts">
+import { ref, computed, onMounted, inject, defineEmits } from "vue";
+import { Record, HolochainError, ActionHash, EntryHash } from '@holochain/client';
 import { decode } from '@msgpack/msgpack';
+import { {{pascal_case entry_type.name}}{{#each entry_type.fields}}{{#if (eq field_type.type "Enum")}}, {{field_type.label}}{{/if}}{{/each}} } from './types';
+import { ClientKey } from "../../clientProvider";
 {{#uniq_lines}}
   {{#each entry_type.fields}}
     {{#if widget}}
@@ -36,100 +37,79 @@ import { decode } from '@msgpack/msgpack';
   {{/each}}
 {{/uniq_lines}}
 
-export default defineComponent({
-  data(): {
 {{#each entry_type.fields}}
   {{#if widget}}
     {{#if (not (eq cardinality "vector" ) )}}
-    {{camel_case field_name}}: {{> (concat field_type.type "/type")}};
+const {{camel_case field_name}} = ref<{{> (concat field_type.type "/type")}}>();
     {{else}}
       {{#if (eq field_type.type "u8")}}
-    {{camel_case field_name}}: Uint8Array;
+const {{camel_case field_name}} = ref<Uint8Array>();
       {{else}}
-    {{camel_case field_name}}: Array<{{> (concat field_type.type "/type")}}>;
+const {{camel_case field_name}} = ref<Array<{{> (concat field_type.type "/type")}}>>([]);
       {{/if}}
     {{/if}}
   {{/if}}
 {{/each}}
-  } {
-    const current{{pascal_case entry_type.name}} = decode((this.currentRecord.entry as any).Present.entry) as {{pascal_case entry_type.name}};
-    return {
-      {{#each entry_type.fields}}
-        {{#if widget}}
-          {{#if (not (eq cardinality "vector" ) )}}
-      {{camel_case field_name}}: current{{pascal_case ../entry_type.name}}.{{snake_case field_name}},
-          {{else}}
-      {{camel_case field_name}}: current{{pascal_case ../entry_type.name}}.{{snake_case field_name}},
-          {{/if}}
-        {{/if}}
-      {{/each}}
-    }
-  },
-  props: {
+
+const props = defineProps<{
 {{#if link_from_original_to_each_update}}
-    original{{pascal_case entry_type.name}}Hash: {
-      type: null,
-      required: true,
-    },
+  original{{pascal_case entry_type.name}}Hash: ActionHash | EntryHash,
 {{/if}}
-    currentRecord: {
-      type: Object,
-      required: true
-    }
-  },
-  computed: {
-    current{{pascal_case entry_type.name}}() {
-      return decode((this.currentRecord.entry as any).Present.entry) as {{pascal_case entry_type.name}};
-    },
-    is{{pascal_case entry_type.name}}Valid() {
-      return true{{#each entry_type.fields}}{{#if widget}}{{#if (eq cardinality "single")}} && {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate=(concat "this." (camel_case field_name)) }}{{/if}}{{#if (eq cardinality "vector")}} && this.{{camel_case field_name}}.every(e => {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate="e" }}){{/if}}{{/if}}{{/each}};
-    },
-  },
-  mounted() {
-    if (this.currentRecord === undefined) {
-      throw new Error(`The currentRecord input is required for the Edit{{pascal_case entry_type.name}} element`);
-    }
-  {{#if link_from_original_to_each_update}}
-    if (this.original{{pascal_case entry_type.name}}Hash === undefined) {
-      throw new Error(`The original{{pascal_case entry_type.name}}Hash input is required for the Edit{{pascal_case entry_type.name}} element`);
-    }
-  {{/if}}
-  },
-  methods: {
-    async update{{pascal_case entry_type.name}}() {
-      const {{camel_case entry_type.name}}: {{pascal_case entry_type.name}} = {
+  currentRecord: Record
+}>();
+
+const emit = defineEmits<{
+  '{{kebab_case entry_type.name}}-updated': [hash: Uint8Array],
+  'edit-canceled': []
+}>();
+
+const is{{pascal_case entry_type.name}}Valid = computed(() => {
+  return true{{#each entry_type.fields}}{{#if widget}}{{#if (eq cardinality "single")}} && {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate=(camel_case field_name) }}{{/if}}{{#if (eq cardinality "vector")}} && {{camel_case field_name}}.value.every(e => {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate="e" }}){{/if}}{{/if}}{{/each}};
+});
+const current{{pascal_case entry_type.name}} = computed(() => {
+  return decode((this.currentRecord.entry as any).Present.entry) as {{pascal_case entry_type.name}};
+});
+
+const { client } = inject(ClientKey)!;
+
+const update{{pascal_case entry_type.name}} = async () => {
+  const {{camel_case entry_type.name}}: {{pascal_case entry_type.name}} = {
 {{#each entry_type.fields}}
   {{#if widget}}
-        {{snake_case field_name}}: this.{{camel_case field_name}},
+    {{snake_case field_name}}: {{camel_case field_name}}.value!,
   {{else}}
-        {{snake_case field_name}}: this.current{{pascal_case ../entry_type.name}}.{{snake_case field_name}},
+    {{snake_case field_name}}: current{{pascal_case ../entry_type.name}}.{{snake_case field_name}},
   {{/if}}
 {{/each}}
-      };
+  };
 
-      try {
-        const updateRecord: Record = await this.client.callZome({
-          role_name: '{{dna_role_name}}',
-          zome_name: '{{coordinator_zome_manifest.name}}',
-          fn_name: 'update_{{snake_case entry_type.name}}',
-          payload: {
+  try {
+    const updateRecord: Record = await client.value?.callZome({
+      role_name: '{{dna_role_name}}',
+      zome_name: '{{coordinator_zome_manifest.name}}',
+      fn_name: 'update_{{snake_case entry_type.name}}',
+      payload: {
 {{#if link_from_original_to_each_update}}
-            original_{{snake_case entry_type.name}}_hash: this.original{{pascal_case entry_type.name}}Hash,
+        original_{{snake_case entry_type.name}}_hash: props.original{{pascal_case entry_type.name}}Hash,
 {{/if}}
-            previous_{{snake_case entry_type.name}}_hash: this.currentRecord.signed_action.hashed.hash,
-            updated_{{snake_case entry_type.name}}: {{camel_case entry_type.name}}
-          }
-        });
-        this.$emit('{{kebab_case entry_type.name}}-updated', updateRecord.signed_action.hashed.hash);
-      } catch (e) {
-        alert((e as HolochainError).message);
+        previous_{{snake_case entry_type.name}}_hash: props.currentRecord.signed_action.hashed.hash,
+        updated_{{snake_case entry_type.name}}: {{camel_case entry_type.name}}
       }
-    },
-  },
-  emits: ['{{kebab_case entry_type.name}}-updated', 'edit-canceled'],
-  setup() {
-    const client = (inject('client') as ComputedRef<AppClient>).value;
-    return { client };
-  },
+    });
+    emit('{{kebab_case entry_type.name}}-updated', updateRecord.signed_action.hashed.hash);
+  } catch(e) {
+    alert((e as HolochainError).message);
+  }
+}
+
+onMounted(() => {
+  if (!props.currentRecord) {
+    throw new Error(`The currentRecord input is required for the Edit{{pascal_case entry_type.name}} element`);
+  }
+  {{#if link_from_original_to_each_update}}
+  if (!props.original{{pascal_case entry_type.name}}Hash) {
+    throw new Error(`The original{{pascal_case entry_type.name}}Hash input is required for the Edit{{pascal_case entry_type.name}} element`);
+  }
+  {{/if}}
 });
 </script>

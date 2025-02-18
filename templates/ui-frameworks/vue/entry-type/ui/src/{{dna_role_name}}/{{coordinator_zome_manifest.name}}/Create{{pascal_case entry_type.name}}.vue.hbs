@@ -20,10 +20,11 @@
   </div>
 </template>
 
-<script lang="ts">
-import { inject, ComputedRef, defineComponent } from 'vue';
-import { AppClient, Record, AgentPubKey, EntryHash, ActionHash, DnaHash } from '@holochain/client';
+<script setup lang="ts">
+import { inject, ref, computed, defineProps } from 'vue';
+import { Record, HolochainError, ActionHash, EntryHash, DnaHash } from '@holochain/client';
 import { {{pascal_case entry_type.name}}{{#each entry_type.fields}}{{#if (eq field_type.type "Enum")}}, {{field_type.label}}{{/if}}{{/each}} } from './types';
+import { ClientKey } from "../../clientProvider";
 {{#uniq_lines}}
   {{#each entry_type.fields}}
     {{#if widget}}
@@ -33,101 +34,61 @@ import { {{pascal_case entry_type.name}}{{#each entry_type.fields}}{{#if (eq fie
   {{/each}}
 {{/uniq_lines}}
 
-export default defineComponent({
-  data(): {
 {{#each entry_type.fields}}
   {{#if widget}}
     {{#if (not (eq cardinality "vector" ) )}}
-    {{camel_case field_name}}: {{> (concat field_type.type "/type")}}{{#if (eq cardinality "option")}}| undefined{{/if}};
+const {{camel_case field_name}} = ref<{{> (concat field_type.type "/type")}}{{#if (eq cardinality "option")}}| undefined{{/if}}>();
     {{else}}
-    {{#if (eq field_type.type "u8")}}
-    {{camel_case field_name}}: Uint8Array;
-    {{else}}
-    {{camel_case field_name}}: Array<{{> (concat field_type.type "/type")}}>;
-    {{/if}}
-    {{/if}}
-  {{/if}}
-{{/each}}
-  } {
-    return {
-      {{#each entry_type.fields}}
-        {{#if widget}}
-          {{#if (not (eq cardinality "vector" ) )}}
-      {{camel_case field_name}}: {{> (concat field_type.type "/" widget "/initial-value") field_type=field_type}},
-          {{else}}
-      {{camel_case field_name}}: [{{> (concat field_type.type "/" widget "/initial-value") field_type=field_type}}],
-          {{/if}}
-        {{/if}}
-      {{/each}}
-    }
-  },
-{{#uniq_lines}}
-  {{#each entry_type.fields}}
-    {{#if (not widget)}}
-  props: {
-    {{/if}}
-  {{/each}}
-{{/uniq_lines}}
-    {{#each entry_type.fields}}
-      {{#if (not widget)}}
-    {{camel_case field_name}}: {
-      type: null,
-      required: true
-    },
+      {{#if (eq field_type.type "u8")}}
+const {{camel_case field_name}} = ref<Uint8Array>();
+      {{else}}
+const {{camel_case field_name}} = ref<Array<{{> (concat field_type.type "/type")}}>>();
       {{/if}}
-    {{/each}}
-{{#uniq_lines}}
-  {{#each entry_type.fields}}
-    {{#if (not widget)}}
-  },
-    {{/if}}
-  {{/each}}
-{{/uniq_lines}}
-  computed: {
-    is{{pascal_case entry_type.name}}Valid() {
-    return true{{#each entry_type.fields}}{{#if widget}}{{#if (eq cardinality "single")}} && {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate=(concat "this." (camel_case field_name)) }}{{/if}}{{#if (eq cardinality "vector")}} && this.{{camel_case field_name}}.every(e => {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate="e" }}){{/if}}{{/if}}{{/each}};
-    },
-  },
-  mounted() {
-{{#each entry_type.fields}}
-  {{#if (not widget) }}
-    {{#if (ne cardinality "option")}}
-    if (this.{{camel_case field_name}} === undefined) {
-      throw new Error(`The {{camel_case field_name}} input is required for the Create{{pascal_case ../entry_type.name}} element`);
-    }
     {{/if}}
   {{/if}}
 {{/each}}
-  },
-  methods: {
-    async create{{pascal_case entry_type.name}}() {
-      const {{camel_case entry_type.name}}: {{pascal_case entry_type.name}} = {
+
+const { {{#each entry_type.fields}} {{#if (not widget)}} {{camel_case field_name}}, {{/if}} {{/each}} } = defineProps<{
+  {{#each entry_type.fields}}
+    {{#if (not widget)}}
+    {{camel_case field_name}}{{#if (eq cardinality "option")}}?{{/if}}: {{> (concat field_type.type "/type")}},
+    {{/if}}
+  {{/each}}
+}>();
+
+const { client } = inject(ClientKey)!;
+
+const is{{pascal_case entry_type.name}}Valid = computed(() => {
+  return true{{#each entry_type.fields}}{{#if widget}}{{#if (eq cardinality "single")}} && {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate=(concat "" (camel_case field_name)) }}{{/if}}{{#if (eq cardinality "vector")}} && {{camel_case field_name}}.every(e => {{> (concat field_type.type "/" widget "/is-valid") variable_to_validate="e" }}){{/if}}{{/if}}{{/each}};
+});
+
+const emit = defineEmits<{ '{{kebab_case entry_type.name}}-created': [hash: Uint8Array] }>();
+
+const create{{pascal_case entry_type.name}} = async () => {
+  const new{{pascal_case entry_type.name}}: {{pascal_case entry_type.name}} = {
 {{#each entry_type.fields}}
   {{#if (eq cardinality "single") }}
-        {{snake_case field_name}}: this.{{camel_case field_name}}!,
+    {{#if (not widget)}}
+    {{snake_case field_name}}: {{camel_case field_name}},
+    {{else}}
+    {{snake_case field_name}}: {{camel_case field_name}}.value!,
+    {{/if}}
   {{else}}
-        {{snake_case field_name}}: this.{{camel_case field_name}}{{#if (eq cardinality "vector") }}{{#if field_type.type "u8"}} as Uint8Array{{else}}as Array<{{> (concat field_type.type "/type") }}>{{/if}}{{/if}},
+    {{snake_case field_name}}: {{camel_case field_name}}{{#if (eq cardinality "vector") }}{{#if field_type.type "u8"}} as Uint8Array{{else}}as Array<{{> (concat field_type.type "/type") }}>{{/if}}{{/if}},
   {{/if}}
 {{/each}}
-      };
+  };
 
-      try {
-        const record: Record = await this.client.callZome({
-          role_name: '{{dna_role_name}}',
-          zome_name: '{{coordinator_zome_manifest.name}}',
-          fn_name: 'create_{{snake_case entry_type.name}}',
-          payload: {{camel_case entry_type.name}},
-        });
-        this.$emit('{{kebab_case entry_type.name}}-created', record.signed_action.hashed.hash);
-      } catch (e: any) {
-        alert(e);
-      }
-    },
-  },
-  emits: ['{{kebab_case entry_type.name}}-created'],
-  setup() {
-    const client = (inject('client') as ComputedRef<AppClient>).value;
-    return { client };
-  },
-});
+  try {
+    const record: Record = await client.value?.callZome({
+      role_name: '{{dna_role_name}}',
+      zome_name: '{{coordinator_zome_manifest.name}}',
+      fn_name: 'create_{{snake_case entry_type.name}}',
+      payload: new{{pascal_case entry_type.name}},
+    });
+    emit('{{kebab_case entry_type.name}}-created', record.signed_action.hashed.hash);
+  } catch(e) {
+    alert((e as HolochainError).message);
+  }
+}
 </script>

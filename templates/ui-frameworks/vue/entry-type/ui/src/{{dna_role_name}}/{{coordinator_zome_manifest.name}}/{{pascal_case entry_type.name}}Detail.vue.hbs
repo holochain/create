@@ -38,13 +38,13 @@
     <div class="alert" v-else>The requested {{lower_case entry_type.name}} was not found.</div>
   </div>
   <progress v-else></progress>
-  <div class="alert" v-if="error">Error: {error.message}</div>
+  <div class="alert" v-if="error">Error: {{ error.message }}</div>
 </template>
 
-<script lang="ts">
-import { inject, ComputedRef, defineComponent } from 'vue';
+<script setup lang="ts">
+import { ref, computed, onMounted, inject, defineProps } from "vue";
 import { decode } from '@msgpack/msgpack';
-import { AppClient, Record, AgentPubKey, EntryHash, ActionHash, DnaHash, HolochainError } from '@holochain/client';
+import { Record, EntryHash, ActionHash, HolochainError } from '@holochain/client';
 import { {{pascal_case entry_type.name}}{{#each entry_type.fields}}{{#if (eq field_type.type "Enum")}}, {{field_type.label}}{{/if}}{{/each}} } from './types';
 {{#uniq_lines}}
   {{#each entry_type.fields}}
@@ -57,87 +57,67 @@ import { {{pascal_case entry_type.name}}{{#each entry_type.fields}}{{#if (eq fie
 {{#if crud.update}}
 import Edit{{pascal_case entry_type.name}} from './Edit{{pascal_case entry_type.name}}.vue';
 {{/if}}
+import { ClientKey } from "../../clientProvider";
 
-export default defineComponent({
+const props = defineProps<{
+  {{camel_case entry_type.name}}Hash: ActionHash | EntryHash
+}>();
+
+const emit = defineEmits<{ '{{kebab_case entry_type.name}}-deleted': [hash: Uint8Array] }>();
+
+const record = ref<Record | undefined>(undefined);
+const loading = ref(true);
+const error = ref<HolochainError | undefined>(undefined);
 {{#if crud.update}}
-  components: {
-    Edit{{pascal_case entry_type.name}},
-  },
+const editing = ref(false);
 {{/if}}
-  props: {
-    {{camel_case entry_type.name}}Hash: {
-      type: Object,
-      required: true
-    }
-  },
-  data(): {
-      record: Record | undefined;
-      loading: boolean;
-      error: HolochainError | undefined;
-{{#if crud.update}}
-      editing: boolean;
-{{/if}}
-    } {
-      return {
-        record: undefined,
-        loading: true,
-        error: undefined,
-  {{#if crud.update}}
-        editing: false,
-  {{/if}}
-      }
-  },
-  computed: {
-    {{camel_case entry_type.name}}() {
-      if (!this.record) return;
-      return decode((this.record.entry as any).Present.entry) as {{pascal_case entry_type.name}};
-    }
-  },
-  async mounted() {
-    if (this.{{camel_case entry_type.name}}Hash === undefined) {
-      throw new Error(`The {{camel_case entry_type.name}}Hash input is required for the {{pascal_case entry_type.name}}Detail element`);
-    }
-    await this.fetch{{pascal_case entry_type.name}}();
-  },
-  methods: {
-    async fetch{{pascal_case entry_type.name}}() {
-      try {
-        this.loading = true;
-        this.record = await this.client.callZome({
-          role_name: '{{dna_role_name}}',
-          zome_name: '{{coordinator_zome_manifest.name}}',
-          fn_name: '{{#if crud.update}}get_latest_{{snake_case entry_type.name}}{{else}}get_{{snake_case entry_type.name}}{{/if}}',
-          payload: this.{{camel_case entry_type.name}}Hash,
-        });
-      } catch (e) {
-        this.error = e as HolochainError;
-      } finally {
-        this.loading = false;
-      }
-    },
+
+const { client } = inject(ClientKey)!;
+
+const {{camel_case entry_type.name}} = computed(() => {
+  if (!record.value) return;
+  return decode((record.value.entry as any).Present.entry) as {{pascal_case entry_type.name}};
+});
+
+const fetch{{pascal_case entry_type.name}} = async () => {
+  try {
+    loading.value = true;
+    record.value = await client.value?.callZome({
+      role_name: '{{dna_role_name}}',
+      zome_name: '{{coordinator_zome_manifest.name}}',
+      fn_name: '{{#if crud.update}}get_latest_{{snake_case entry_type.name}}{{else}}get_{{snake_case entry_type.name}}{{/if}}',
+      payload: props.{{camel_case entry_type.name}}Hash,
+    });
+  } catch(e) {
+    error.value = e as HolochainError;
+  } finally {
+    loading.value = false;
+  }
+}
+
 {{#if crud.delete}}
-    async delete{{pascal_case entry_type.name}}() {
-      try {
-        this.loading = true
-        await this.client.callZome({
-          role_name: '{{dna_role_name}}',
-          zome_name: '{{coordinator_zome_manifest.name}}',
-          fn_name: 'delete_{{snake_case entry_type.name}}',
-          payload: this.{{camel_case entry_type.name}}Hash,
-        });
-        this.$emit('{{kebab_case entry_type.name}}-deleted', this.{{camel_case entry_type.name}}Hash);
-      } catch (e: any) {
-        this.error = e as HolochainError;
-      } finally {
-        this.loading = false;
-      }
-    }
+const delete{{pascal_case entry_type.name}} = async () => {
+  try {
+    loading.value = true
+    await client.value?.callZome({
+      role_name: '{{dna_role_name}}',
+      zome_name: '{{coordinator_zome_manifest.name}}',
+      fn_name: 'delete_{{snake_case entry_type.name}}',
+      payload: props.{{camel_case entry_type.name}}Hash,
+    });
+    emit('{{kebab_case entry_type.name}}-deleted', props.{{camel_case entry_type.name}}Hash);
+  } catch(e) {
+    error.value = e as HolochainError;
+  } finally {
+    loading.value = false;
+  }
+}
 {{/if}}
-  },
-  emits: ['{{kebab_case entry_type.name}}-deleted'],
-  setup() {
-    const client = (inject('client') as ComputedRef<AppClient>).value;
-    return { client };
-  },
+
+onMounted(async () => {
+  if (!props.{{camel_case entry_type.name}}Hash) {
+    throw new Error(`The {{camel_case entry_type.name}}Hash input is required for the {{pascal_case entry_type.name}}Detail element`);
+  }
+  await fetch{{pascal_case entry_type.name}}();
 });
 </script>

@@ -1,76 +1,71 @@
 <template>
   <progress v-if="loading"></progress>
   <div v-else>
-    <div class="alert" v-if="error">Error fetching the {{lower_case (plural from_referenceable.name)}}: {{{{raw}}}} {{error.message}}.{{{{/raw}}}}</div>
+    <div class="alert" v-if="error">
+      Error fetching the {{lower_case (plural from_referenceable.name)}}: {{ error.message }}.
+    </div>
     <div v-else-if="hashes && hashes.length > 0">
       <{{pascal_case to_referenceable.name}}Detail
         v-for="(hash, i) in hashes"
         :key="i"
         :{{kebab_case to_referenceable.name}}-hash="hash"
-      >
-      </{{pascal_case to_referenceable.name}}Detail>
+      />
     </div>
-    <div class="alert" v-else>No {{lower_case (plural to_referenceable.name)}} found for this {{lower_case from_referenceable.name}}.</div>
+    <div class="alert" v-else>
+      No {{lower_case (plural to_referenceable.name)}} found for this {{lower_case from_referenceable.name}}.
+    </div>
   </div>
 </template>
 
-<script lang="ts">
-import { toRaw, inject, ComputedRef, defineComponent } from 'vue';
+<script setup lang="ts">
+import { ref, onMounted, toRaw, inject } from 'vue';
 import { decode } from '@msgpack/msgpack';
-import { AppClient, Record, Link, AgentPubKey, EntryHash, ActionHash, NewEntryAction, HolochainError, SignalType } from '@holochain/client';
+import { Link, HolochainError, SignalType, ActionHash, EntryHash } from '@holochain/client';
+import { ClientKey } from './clientProvider';
 import {{pascal_case to_referenceable.name}}Detail from './{{pascal_case to_referenceable.name}}Detail.vue';
-import { {{pascal_case coordinator_zome_manifest.name}}Signal } from './types';
+import type { {{pascal_case coordinator_zome_manifest.name}}Signal } from './types';
 
-export default defineComponent({
-  components: {
-    {{pascal_case to_referenceable.name}}Detail,
-  },
-  props: {
-    {{camel_case from_referenceable.singular_arg}}: {
-      type: Object,
-      required: true
-    }
-  },
-  data(): { hashes: Array<{{to_referenceable.hash_type}}> | undefined; loading: boolean; error: any } {
-    return {
-      hashes: undefined,
-      loading: false,
-      error: undefined
-    }
-  },
-  async mounted() {
-    if (!this.{{camel_case from_referenceable.singular_arg}}) {
-      throw new Error(`The {{camel_case from_referenceable.singular_arg}} input is required for the {{pascal_case (plural to_referenceable.name)}}For{{pascal_case from_referenceable.name}} element`);
-    }
+const props = defineProps<{ {{camel_case from_referenceable.singular_arg}}: any }>();
 
-    try {
-      this.loading = true;
-      const links: Array<Link> = await this.client.callZome({
-        role_name: '{{dna_role_name}}',
-        zome_name: '{{coordinator_zome_manifest.name}}',
-        fn_name: 'get_{{snake_case (plural to_referenceable.name)}}_for_{{snake_case from_referenceable.name}}',
-        payload: this.{{camel_case from_referenceable.singular_arg}},
-      });
-      this.hashes = links.map(l => l.target);
-    } catch (e) {
-      this.error = e as HolochainError;
-    } finally {
-      this.loading = false;
-    }
-    this.loading = false;
+const hashes = ref<Array<{{to_referenceable.hash_type}}> | undefined>(undefined);
+const loading = ref(false);
+const error = ref<HolochainError | undefined>(undefined);
 
-    toRaw(this.client)?.on('signal', signal => {
-      if (!(SignalType.App in signal)) return;
-      if (signal.App.zome_name !== '{{coordinator_zome_manifest.name}}') return;
-      const payload = signal.App.payload as {{pascal_case coordinator_zome_manifest.name}}Signal;
-      if (payload.type !== 'LinkCreated') return;
-      if (payload.link_type !== '{{pascal_case link_type_name}}') return;
-      if (this.hashes) this.hashes.push(payload.action.hashed.content.target_address);
+const { client } = inject(ClientKey)!;
+
+const fetchData = async () => {
+  try {
+    loading.value = true;
+    const links: Array<Link> = await client.value.callZome({
+      role_name: '{{dna_role_name}}',
+      zome_name: '{{coordinator_zome_manifest.name}}',
+      fn_name: 'get_{{snake_case (plural to_referenceable.name)}}_for_{{snake_case from_referenceable.name}}',
+      payload: props.{{camel_case from_referenceable.singular_arg}},
     });
-  },
-  setup() {
-    const client = (inject('client') as ComputedRef<AppClient>).value;
-    return { client };
-  },
+    hashes.value = links.map(l => l.target);
+  } catch(e) {
+    error.value = e as HolochainError;
+  } finally {
+    loading.value = false;
+  }
+};
+
+onMounted(async () => {
+  if (!props.{{camel_case from_referenceable.singular_arg}}) {
+    throw new Error(
+      `The {{camel_case from_referenceable.singular_arg}} input is required for the {{pascal_case (plural to_referenceable.name)}}For{{pascal_case from_referenceable.name}} element`
+    );
+  }
+
+  await fetchData();
+
+  toRaw(client.value)?.on('signal', signal => {
+    if (!(SignalType.App in signal)) return;
+    if (signal.App.zome_name !== '{{coordinator_zome_manifest.name}}') return;
+    const payload = signal.App.payload as {{pascal_case coordinator_zome_manifest.name}}Signal;
+    if (payload.type !== 'LinkCreated') return;
+    if (payload.link_type !== '{{pascal_case link_type_name}}') return;
+    if (hashes.value) hashes.value.push(payload.action.hashed.content.target_address);
+  });
 });
 </script>

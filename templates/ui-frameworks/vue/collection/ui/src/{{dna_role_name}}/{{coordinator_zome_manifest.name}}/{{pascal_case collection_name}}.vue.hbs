@@ -15,73 +15,53 @@
   </div>
 </template>
 
-<script lang="ts">
-import { inject, toRaw, ComputedRef, defineComponent } from 'vue';
-import { decode } from '@msgpack/msgpack';
-import { AppClient, NewEntryAction, Link, Record, AgentPubKey, EntryHash, ActionHash, HolochainError, SignalType } from '@holochain/client';
+<script setup lang="ts">
+import { ref, onMounted, toRaw, inject{{#if (eq collection_type.type "ByAuthor")}}, defineProps{{/if}} } from 'vue';
+import { NewEntryAction, Link, AgentPubKey, ActionHash, HolochainError, SignalType } from '@holochain/client';
 import {{pascal_case referenceable.name}}Detail from './{{pascal_case referenceable.name}}Detail.vue';
 import { {{pascal_case coordinator_zome_manifest.name}}Signal } from './types';
+import { ClientKey } from '../../clientProvider';
 
-export default defineComponent({
-  components: {
-    {{pascal_case referenceable.name}}Detail,
-  },
+const hashes = ref<Array<ActionHash> | undefined>(undefined);
+const loading = ref(false);
+const error = ref<HolochainError | undefined>(undefined);
+
 {{#if (eq collection_type.type "ByAuthor")}}
-  props: {
-    author: {
-      type: Object,
-      required: true
-    }
-  },
+defineProps<{author: AgentPubKey}>();
 {{/if}}
-  data(): { hashes: Array<{{referenceable.hash_type}}> | undefined; loading: boolean; error: any } {
-    return {
-      hashes: undefined,
-      loading: false,
-      error: undefined
-    }
-  },
-  async mounted() {
-  {{#if (eq collection_type.type "ByAuthor")}}
-    if (!this.author) {
-      throw new Error(`The author property is required for the {{pascal_case collection_name}} element`);
-    }
 
-  {{/if}}
-    await this.fetch{{pascal_case referenceable.name}}();
-    toRaw(this.client)?.on('signal', signal => {
-      if (!(SignalType.App in signal)) return;
-      if (signal.App.zome_name !== '{{coordinator_zome_manifest.name}}') return;
-      const payload = signal.App.payload as {{pascal_case coordinator_zome_manifest.name}}Signal;
-      if (payload.type !== 'EntryCreated') return;
-      if (payload.app_entry.type !== '{{pascal_case referenceable.name}}') return;
-    {{#if (eq collection_type.type "ByAuthor")}}
-      if (this.author.toString() !== this.client.myPubKey.toString()) return;
-    {{/if}}
-      if (this.hashes) this.hashes.push({{#if (eq referenceable.hash_type "ActionHash")}}payload.action.hashed.hash{{else}}(payload.action.hashed.content as NewEntryAction).entry_hash{{/if}});
+const { client } = inject(ClientKey)!;
+
+const fetch{{pascal_case referenceable.name}} = async () => {
+  try {
+    loading.value = true;
+    const links: Array<Link> = await client.value?.callZome({
+      role_name: '{{dna_role_name}}',
+      zome_name: '{{snake_case coordinator_zome_manifest.name}}',
+      fn_name: 'get_{{snake_case collection_name}}',
+      {{#if (eq collection_type.type "ByAuthor")}}payload: author.value,{{/if}}
     });
-  },
-  methods: {
-    async fetch{{pascal_case referenceable.name}}() {
-      try {
-        this.loading = true;
-        const links: Array<Link> = await this.client.callZome({
-          role_name: '{{dna_role_name}}',
-          zome_name: '{{snake_case coordinator_zome_manifest.name}}',
-          fn_name: 'get_{{snake_case collection_name}}',
-          {{#if (eq collection_type.type "ByAuthor")}}payload: this.author,{{/if}}
-        });
-        this.hashes = links.map(l => l.target);
-      } catch (e) {
-        this.error = e as HolochainError;
-      } finally {
-        this.loading = false;
-      }
-    }
-  },
-  setup() {
-    const client = (inject('client') as ComputedRef<AppClient>).value;
-    return { client };
-  },
+    hashes.value = links.map(l => l.target);
+  } catch(e) {
+    error.value = e as HolochainError;
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(async () => {
+  await fetch{{pascal_case referenceable.name}}();
+
+  toRaw(client.value)?.on('signal', signal => {
+    if (!(SignalType.App in signal)) return;
+    if (signal.App.zome_name !== '{{coordinator_zome_manifest.name}}') return;
+    const payload = signal.App.payload as {{pascal_case coordinator_zome_manifest.name}}Signal;
+    if (payload.type !== 'EntryCreated') return;
+    if (payload.app_entry.type !== '{{pascal_case referenceable.name}}') return;
+  {{#if (eq collection_type.type "ByAuthor")}}
+    if (author.toString() !== client.value?.myPubKey.toString()) return;
+  {{/if}}
+    if (hashes.value) hashes.value.push({{#if (eq referenceable.hash_type "ActionHash")}}payload.action.hashed.hash{{else}}(payload.action.hashed.content as NewEntryAction).entry_hash{{/if}});
+  });
 });
 </script>

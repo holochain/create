@@ -1,0 +1,46 @@
+import {
+  type AppClient,
+  AppWebsocket,
+  HolochainError,
+} from "@holochain/client";
+import { ref, provide, InjectionKey, onMounted, Ref } from "vue";
+
+export interface ClientContextValues {
+  client: Ref<AppClient | undefined>;
+  error: Ref<HolochainError | undefined>;
+  loading: Ref<boolean>;
+}
+
+export const ClientKey = Symbol() as InjectionKey<ClientContextValues>;
+
+export function useClientProvider() {
+  const loading = ref(false);
+  const error = ref<HolochainError>();
+  const client = ref<AppClient>();
+
+  const connectClient = async () => {
+    loading.value = true;
+    try {
+      client.value = await AppWebsocket.connect();
+    } catch(e) {
+      error.value = e as HolochainError;
+      console.error("Failed to establish websocket connection:", e);
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  onMounted(() => {
+    connectClient();
+  });
+
+  const value = {
+    client,
+    error,
+    loading,
+  };
+
+  provide(ClientKey, value);
+
+  return value;
+}

@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <ClientProvider>
     <div>
       <a href="https://developer.holochain.org/get-started/" target="_blank">
         <img src="./assets/holochainLogo.svg" class="logo holochain" alt="holochain logo" />
@@ -15,85 +15,15 @@
       <p>Import scaffolded components into <code>src/App.vue</code> to use your hApp</p>
       <p class="read-the-docs">Click on the Holochain logo to learn more</p>
     </div>
-  </div>
+  </ClientProvider>
 </template>
 
-<script lang="ts">
-import { computed, defineComponent } from 'vue';
-import { AppClient, AppWebsocket, HolochainError } from '@holochain/client';
-{{#if holo_enabled}}
-import WebSdk from '@holo-host/web-sdk';
-import type { AgentState } from '@holo-host/web-sdk';
-{{/if}}
+<script setup lang="ts">
+import { inject } from "vue";
+import ClientProvider from "./ClientProvider.vue";
+import { ClientKey } from "./clientProvider";
 
-export default defineComponent({
-  components: {},
-  data(): {
-    client: AppClient | undefined;
-    error: HolochainError | undefined;
-    loading: boolean;
-  {{#if holo_enabled}}
-    IS_HOLO: boolean;
-  {{/if}}
-  } {
-    return {
-      client: undefined,
-      error: undefined,
-      loading: false,
-    {{#if holo_enabled}}
-      IS_HOLO: ['true', '1', 't'].includes(import.meta.env.VITE_APP_IS_HOLO?.toLowerCase()),
-    {{/if}}
-    };
-  },
-  async mounted() {
-  {{#if holo_enabled}}
-    try {
-      this.loading = true
-      if (this.IS_HOLO) {
-        const client: WebSdk = await WebSdk.connect({
-          chaperoneUrl: import.meta.env.VITE_APP_CHAPERONE_URL,
-          authFormCustomization: {
-            appName: '{{app_name}}',
-          }
-        });
-        client.on('agent-state', (agent_state: AgentState) => {
-          this.loading = !agent_state.isAvailable || agent_state.isAnonymous
-        });
-        client.signUp({ cancellable: false });
-        this.client = client
-      } else {
-        this.client = await AppWebsocket.connect();
-      }
-    } catch (e) {
-      this.error = e as HolochainError;
-    } finally {
-      this.loading = false;
-    }
-  {{else}}
-    try {
-      this.loading = true;
-      this.client = await AppWebsocket.connect();
-    } catch (e) {
-      this.error = e as HolochainError;
-    } finally {
-      this.loading = false;
-    }
-  {{/if}}
-  },
-{{#if holo_enabled}}
-  methods: {
-    async logout () {
-      await (this.client as WebSdk).signOut();
-      await (this.client as WebSdk).signIn({ cancellable: false });
-    }
-  },
-{{/if}}
-  provide() {
-    return {
-      client: computed(() => this.client),
-    };
-  },
-});
+const {loading, error} = inject(ClientKey)!;
 </script>
 
 <style scoped>

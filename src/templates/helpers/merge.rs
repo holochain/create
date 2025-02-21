@@ -13,6 +13,21 @@ pub fn get_scope_open_and_close_char_indexes(
         "Given scope opener not found in the given parameter",
     ))?;
 
+    let Some(open_scope_character) = scope_opener.chars().last() else {
+        return Err(RenderError::new(
+            "match_scope's first parameter cannot be an empty string",
+        ));
+    };
+    let close_scope_character = match open_scope_character {
+        '{' => '}',
+        '[' => ']',
+        '(' => ')',
+        '<' => '>',
+        _ => Err(RenderError::new(
+        "Last character for the first match_scope parameter was not recognized as a scope opener character."
+        ))?
+    };
+
     index = index + scope_opener.len() - 1;
     let scope_opener_index = index;
     let mut scope_count = 1;
@@ -20,10 +35,10 @@ pub fn get_scope_open_and_close_char_indexes(
     while scope_count > 0 {
         index += 1;
         match text.chars().nth(index) {
-            Some('{') => {
+            Some(c) if c == open_scope_character => {
                 scope_count += 1;
             }
-            Some('}') => {
+            Some(c) if c == close_scope_character => {
                 scope_count -= 1;
             }
             None => {
@@ -150,9 +165,9 @@ impl HelperDef for MatchScope {
         rc: &mut RenderContext<'reg, 'rc>,
         _out: &mut dyn Output,
     ) -> HelperResult {
-        let t = h
-            .template()
-            .ok_or(RenderError::new("merge helper cannot have empty content"))?;
+        let t = h.template().ok_or(RenderError::new(
+            "match_scope helper cannot have empty content",
+        ))?;
 
         let mut data = rc
             .context()
@@ -170,10 +185,12 @@ impl HelperDef for MatchScope {
 
         let scope_opener = h
             .param(0)
-            .ok_or(RenderError::new("merge helper needs 1 parameter"))?
+            .ok_or(RenderError::new("match_scope helper needs 1 parameter"))?
             .value()
             .as_str()
-            .ok_or(RenderError::new("merge's first parameter must be a string"))?
+            .ok_or(RenderError::new(
+                "match_scope's first parameter must be a string",
+            ))?
             .to_string();
 
         let (scope_opener_index, scope_close_index) =
@@ -239,6 +256,14 @@ mod tests {
     use handlebars::Handlebars;
     use serde_json::json;
 
+    fn build_handlebars<'a>() -> Handlebars<'a> {
+        let mut h = Handlebars::new();
+        h.register_escape_fn(handlebars::no_escape);
+
+        let h = register_merge(h);
+        h
+    }
+
     #[test]
     fn test_get_scope_open_and_close_char_indexes() {
         let text = String::from("const s = {};");
@@ -253,9 +278,7 @@ mod tests {
 
     #[test]
     fn test_merge_match_scope_empty() {
-        let h = Handlebars::new();
-
-        let h = register_merge(h);
+        let h = build_handlebars();
 
         let code = r#"
         class A {
@@ -277,9 +300,7 @@ mod tests {
 
     #[test]
     fn test_merge_match_scope_simple() {
-        let h = Handlebars::new();
-
-        let h = register_merge(h);
+        let h = build_handlebars();
 
         let code = r#"class A {
     // Multiline
@@ -314,10 +335,38 @@ class A {
     }
 
     #[test]
-    fn test_merge_match_scope() {
-        let h = Handlebars::new();
+    fn test_merge_match_scope_simple_with_array_scopes() {
+        let h = build_handlebars();
 
-        let h = register_merge(h);
+        let code = r#"const a = [
+  1,
+];
+"#;
+        let value = json!({"previous_file_content": code});
+        let context = Context::from(value);
+        let template = r#"
+{{#merge previous_file_content}}
+  {{#match_scope "const a = ["}}
+  {{previous_scope_content}}
+  2,
+  {{/match_scope}}
+{{/merge}}
+"#;
+
+        assert_eq!(
+            h.render_template_with_context(template, &context).unwrap(),
+            r#"
+const a = [
+  1,
+  2,
+];
+"#,
+        );
+    }
+
+    #[test]
+    fn test_merge_match_scope() {
+        let h = build_handlebars();
 
         let code = r#"export class A {
     nestedFn1() {
